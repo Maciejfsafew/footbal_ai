@@ -8,14 +8,16 @@ author: Maciej Mazur
 
 X=800
 Y=400
-GOALPOST = 100
+GOALPOST = 400
 FIELD = [150, 200]
 RADIUS = 10
 #LAYOUT = [X, Y, GOALPOST, FIELD, [20, 200], [780, 200], [330, 100]]
 RESULT = [0, 0]
-
+DIVISION = 10.0
 KEYMAP = {111 : "Up", 113 : "Left", 116 : "Down", 114 : "Right",
           25 : "w", 38 : "a", 39 : "s", 40 : "d"}
+import json
+import sys
 import math
 import random
 from Tkinter import Tk, Canvas, Frame, BOTH, W
@@ -73,21 +75,20 @@ class Game():
         vx = abs(vx)
       if x >=X and vx > 0:
         vx = -abs(vx)
-      if abs(Y/2 - y) < GOALPOST/2:
+      if True:
         if x <= 0:
-          self.layout[7][0] = self.layout[7][0] + 1
+          self.layout[7][1] = self.layout[7][1] + 1
         else:
-          self.layout[7][1] = self.layout[7][1] + 1  
+          self.layout[7][0] = self.layout[7][0] + 1  
         x = X/2 
         y = Y/2
-        vx = random.random()/100.0
-        vy = random.random()/100.0
+        vx = (random.random()-0.5)/DIVISION 
+        vy = (random.random()-0.5)/DIVISION
     if y <= 0 or y >= Y:
       if y <= 0 and vy < 0:
         vy = abs(vy)
       if y >= Y and vy > 0:
         vy = -abs(vy)
-    
     self.layout[6] = [x + X * vx, y + Y * vy, vx, vy]
     
     ball = self.layout[6]
@@ -100,7 +101,7 @@ class Game():
     self.layout[5] = self.move_player(p2)
     self.layout[6] = ball
 
-  def adjust_speed(self, p, buttons):
+  def adjust_speed(self, p, buttons, ball= False):
     [x, y, vx, vy] = p
     [up, left, down, right] = buttons
     vx = vx * 0.5
@@ -112,7 +113,7 @@ class Game():
     if up:
       vy = vy - 0.005
     if down:
-      vy = vy + 0.005  
+      vy = vy + 0.005
     return [x, y, vx, vy]
 
   def move_player(self, p):
@@ -134,7 +135,7 @@ class Game():
     return [x, y, vx, vy]
     
   def init_new_state(self):
-    self.layout = [X, Y, GOALPOST, FIELD, [20, 200, 0.0, 0.0], [X-20, Y/2, 0.0, 0.0], [X/2.0, Y/2.0, random.random()/100.0, random.random()/100.0], [0, 0], [[40, 5],[40, 5], [10, 1]]]
+    self.layout = [X, Y, GOALPOST, FIELD, [20, 200, 0.0, 0.0], [X-20, Y/2, 0.0, 0.0], [X/2.0, Y/2.0, (random.random()-0.5)/DIVISION, (random.random()-0.5)/DIVISION ], [0, 0], [[40, 5],[40, 5], [10, 1]]]
 
   def get_layout(self):
     return self.layout
@@ -206,7 +207,55 @@ class Application(Frame):
     self.canvas.create_oval(x0 + LAYOUT[6][0]-LAYOUT[8][2][0], y0 + LAYOUT[6][1]-LAYOUT[8][2][0], x0 + LAYOUT[6][0] + LAYOUT[8][2][0], y0 + LAYOUT[6][1] + LAYOUT[8][2][0], fill="white")
 
     self.canvas.pack(fill=BOTH, expand=1)
-    self.after(10, self.draw)    
+    self.after(1, self.draw)    
+
+class MockControl:
+  def __init__(self):
+    self.p1_buttons = [False, False, False, False]
+    self.p2_buttons = [False, False, False, False]
+  def buttons(self):
+    return [self.p1_buttons, self.p2_buttons]
+
+class Player:
+  def __init__(self, features, output, recurrent, name, debug=False):
+    self.debug = debug
+    self.features = features
+    self.output = output
+    self.recurrent = recurrent
+    self.name = name
+    self.input = [1.0 for i in range(0, 1 + features + recurrent)]
+    self.out = [0.0 for i in range(0, output + recurrent)]
+    self.edges = [[i, j, (random.random()-0.5)/(1+features+recurrent)] for j in range(0, output + recurrent) for i in range(0, 1 + features + recurrent)]
+  def next_round(self, feat):
+    self.input[1:1 + self.features] = feat
+    for i in xrange(len(self.out)):
+      self.out[i] = 0.0
+    for [i, j, weight] in self.edges:
+      self.out[j] = self.out[j] + weight * self.input[i]
+
+    for i in xrange(len(self.out)):
+      self.out[i] = math.tanh(self.out[i])
+    
+    self.input[1 + self.features:] = self.out[3:] 
+    if self.debug:
+      print 'out', self.out[0:4], 'rec out', self.out[4:]
+      print 'bias', self.input[0:1], 'features', self.input[1:1 + self.features],'recurrent', self.input[1+self.features:]
+
+    return [x > 0.0 for x in self.out[0:4]]
+  def serialize(self):
+    with open(self.name + ".json", 'w') as outfile:
+      json.dump({'features': self.features, 'output' : self.output, 'name' : self.name, 'recurrent' : self.recurrent, "edges" : self.edges}, outfile) 
+
+  def load(self, filename):
+    with open(filename) as data_file:
+      data = json.load(data_file) 
+    self.features = data['features']
+    self.output = data['output']
+    self.name = data['name']
+    self.recurrent = data['recurrent']
+    self.edges = data['edges']
+    self.input = [1.0 for i in range(0, 1 + self.features + self.recurrent)]
+    self.out = [0.0 for i in range(0, self.output + self.recurrent)]
     
 def start():
   root = Tk()
@@ -215,7 +264,97 @@ def start():
   game = Game(control)
   app = Application(root, game)
   root.mainloop()
-  
 
+class OneControl():
+  def __init__(self, control, cpu):
+    self.control = control
+    self.cpu = cpu
+
+  def buttons(self):
+    [p1, p2] = self.control.buttons()
+    [[x1, y1, vx1, vy1], [x2, y2, vx2, vy2], [bx, by, bvx, bvy]] = self.game.get_layout()[4:7]
+    p1_w = [x1/X, y1/Y, vx1, vy1, x2/X, y2/Y, vx2, vy2, bx/X, by/Y, bvx, bvy]
+    action_p1 = self.cpu.next_round(p1_w)
+    return [action_p1, p2]
+
+def play_cpu(cpu):
+  root = Tk()
+  root.geometry("820x510+200+200")
+  control = KeyControl(root)
+  cpu_control = OneControl(control, cpu)
+  game = Game(cpu_control)
+  cpu_control.game = game
+  app = Application(root, game)
+  root.mainloop()
+
+def test_step(step, p1, p2, control, game, t):
+  p1.edges[t][2] = p1.edges[t][2] + step 
+  for i in xrange(10000):
+    [[x1, y1, vx1, vy1], [x2, y2, vx2, vy2], [bx, by, bvx, bvy]] = game.get_layout()[4:7]
+
+    p1_w = [x1/X, y1/Y, vx1, vy1, x2/X, y2/Y, vx2, vy2, bx/X, by/Y, bvx, bvy]
+    p2_w = [1 - x2/X, 1 - y2/Y, -vx2, -vy2, 1 - x1/X, 1 - y1/Y, -vx1, -vy1,  1 - bx/X, 1 - by/Y,  -bvx, -bvy]
+    action_p1 = p1.next_round(p1_w)
+    control.p1_buttons = action_p1
+    action_p2 = p2.next_round(p2_w)
+
+    action_p3 = [action_p2[0],action_p2[3],action_p2[2],action_p2[1]]
+    control.p2_buttons = action_p2
+    #print action_p1
+    game.next_round()
+          
+  layout = game.get_layout()
+ 
+  res = layout[7][0]/(layout[7][0] + layout[7][1] + 0.00001 )
+  if layout[7][0] + layout[7][1]  < 20:
+    res = 0.0
+  p1.edges[t][2] = p1.edges[t][2] - step
+  return res
+
+def train(p1, p2):
+  control = MockControl()
+  game = Game(control)
+  res = 0.0
+  dx = 0.001
+  r = [0, 0]
+  for epoch in xrange(100):
+    r = [0.0, 0.0]
+    for t in xrange(len(p1.edges)):
+      best_step = [0.0, 0.0, 0, 0] 
+      for step in [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001, 0.0, -0.1, -0.01, -0.001, -0.0001, -0.00001, -0.000001, -0.0000001]:
+        res = test_step(step, p1, p2, control, game, t)
+        layout = game.get_layout()
+        if res > best_step[0]:
+          best_step = [res, step, layout[7][0], layout[7][1]]
+        game.init_new_state()
+
+      test_step(step, p1, p2, control, game, t)
+      layout = game.get_layout()
+      r[0] = r[0] + layout[7][0]
+      r[1] = r[1] + layout[7][1]
+      p1.edges[t][2] = p1.edges[t][2] + best_step[1]
+      print t,len(p1.edges), r, r[0]/ (r[0] + r[1]+ 0.00001), layout[7], layout[7][0]/(layout[7][0]+layout[7][1]+0.001) 
+      #print str(epoch) + " " +  str(t) + " RESULT " + str(layout[7][0]) + ":" + str(layout[7][1])
+    p1.serialize()
+    print "RESULT", epoch, r    
+ 
+def family_train(family):
+  for it in xrange(20):
+    for i in xrange(len(family)):
+      for j in xrange(len(family)):
+        if i != j:
+          train(family[i], family[j]) 
 if __name__ == '__main__':
-  start()
+  command = sys.argv[1]
+  if command == 'play':
+    start()
+  if command == 'train':
+    p1 = Player(12, 4, 5, "p3")
+    #p1.load("p1.json")
+    p2 = Player(12, 4, 5, "p2")
+    train(p1, p2)
+    p1.serialize()
+  if command == 'play_cpu':
+    p1 = Player(0,0,0,"", True)
+    p1.load("p3.json")
+    play_cpu(p1)
